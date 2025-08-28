@@ -80,75 +80,59 @@ def main():
             public_count = sum(1 for repo in repositories if not repo['private'])
             st.metric("Public", public_count)
         with col3:
-            private_count = sum(1 for repo in repositories if repo['private'])
+            private_count = len([repo for repo in repositories if repo['private']])
             st.metric("Private", private_count)
         with col4:
-            total_stars = sum(repo['stars'] for repo in repositories)
+            total_stars = sum(repo['stars'] or 0 for repo in repositories)
             st.metric("Total Stars", total_stars)
         
         if not repositories:
             st.info("No repositories found matching your criteria.")
             return
         
-        # Repository cards
+        # Repository table
         st.subheader(f"📚 Repositories ({len(repositories)})")
         
-        # Pagination
-        repos_per_page = 10
-        total_pages = (len(repositories) - 1) // repos_per_page + 1
+        # Create table data
+        table_data = []
+        for repo in repositories:
+            privacy_icon = "🔒" if repo['private'] else "🌐"
+            table_data.append({
+                "Repository": f"{privacy_icon} {repo['name']}",
+                "Description": repo['description'][:50] + "..." if len(repo['description']) > 50 else repo['description'],
+                "Language": repo['language'] or "N/A",
+                "Stars": repo['stars'] or 0,
+                "Forks": repo['forks'] or 0,
+                "Updated": repo['updated_at'].strftime("%Y-%m-%d"),
+                "Actions": repo['name']  # We'll use this for the download button
+            })
         
-        if total_pages > 1:
-            page = st.selectbox("Page", range(1, total_pages + 1), index=0)
-            start_idx = (page - 1) * repos_per_page
-            end_idx = start_idx + repos_per_page
-            page_repos = repositories[start_idx:end_idx]
-        else:
-            page_repos = repositories
+        # Display table
+        df = pd.DataFrame(table_data)
         
-        # Display repositories
-        for repo in page_repos:
-            with st.container():
-                col1, col2 = st.columns([3, 1])
-                
-                with col1:
-                    # Repository header
-                    privacy_icon = "🔒" if repo['private'] else "🌐"
-                    st.markdown(f"### {privacy_icon} {repo['name']}")
-                    
-                    # Description
-                    st.markdown(f"*{repo['description']}*")
-                    
-                    # Metadata
-                    col_meta1, col_meta2, col_meta3, col_meta4 = st.columns(4)
-                    with col_meta1:
-                        if repo['language']:
-                            st.markdown(f"**Language:** {repo['language']}")
-                    with col_meta2:
-                        st.markdown(f"**⭐ Stars:** {repo['stars']}")
-                    with col_meta3:
-                        st.markdown(f"**🍴 Forks:** {repo['forks']}")
-                    with col_meta4:
-                        updated = repo['updated_at'].strftime("%Y-%m-%d")
-                        st.markdown(f"**Updated:** {updated}")
-                
-                with col2:
-                    # Action buttons
-                    st.markdown("**Actions:**")
-                    
-                    # View on GitHub
-                    st.markdown(f"[🌐 View on GitHub]({repo['html_url']})")
-                    
-                    # Download button
-                    if st.button(f"📥 Download", key=f"download_{repo['name']}", help="Click to download this repository"):
-                        st.session_state[f"downloading_{repo['name']}"] = True
-                    
-                    # Handle download if button was clicked
-                    if st.session_state.get(f"downloading_{repo['name']}", False):
-                        download_repository(repo, git_ops)
-                        # Reset the download state
-                        st.session_state[f"downloading_{repo['name']}"] = False
-                
-                st.divider()
+        # Create columns for table and actions
+        col_table, col_actions = st.columns([4, 1])
+        
+        with col_table:
+            # Display the dataframe without the Actions column
+            display_df = df.drop('Actions', axis=1)
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
+        
+        with col_actions:
+            st.markdown("**Download**")
+            # Create download buttons for each repository
+            for i, repo in enumerate(repositories):
+                if st.button(f"📥", key=f"download_btn_{repo['name']}", help=f"Download {repo['name']}"):
+                    st.session_state[f"show_download_{repo['name']}"] = True
+        
+        # Handle download forms
+        for repo in repositories:
+            if st.session_state.get(f"show_download_{repo['name']}", False):
+                download_repository(repo, git_ops)
+                # Reset the download state after handling
+                if st.session_state.get(f"download_completed_{repo['name']}", False):
+                    st.session_state[f"show_download_{repo['name']}"] = False
+                    st.session_state[f"download_completed_{repo['name']}"] = False
     
     except Exception as e:
         st.error(f"An unexpected error occurred: {str(e)}")
@@ -157,7 +141,7 @@ def main():
 def download_repository(repo, git_ops):
     """Handle repository download"""
     try:
-        st.write("---")
+        st.markdown("---")
         st.subheader(f"📥 Downloading: {repo['name']}")
         
         # Get download path from secrets or use default
@@ -181,8 +165,9 @@ def download_repository(repo, git_ops):
             with col2:
                 cancel_download = st.form_submit_button("❌ Cancel", use_container_width=True)
         
-        if cancel_download:
+        if cancel_download and not confirm_download:
             st.info("Download cancelled.")
+            st.session_state[f"show_download_{repo['name']}"] = False
             return
             
         if confirm_download:
@@ -229,6 +214,7 @@ def download_repository(repo, git_ops):
                     st.info("📁 Repository downloaded successfully")
                 
                 logger.info(f"Repository {repo['name']} downloaded to {local_path}")
+                st.session_state[f"download_completed_{repo['name']}"] = True
                 
             except Exception as e:
                 error_msg = str(e)
