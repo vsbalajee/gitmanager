@@ -289,6 +289,17 @@ def show_dashboard():
         if st.button("📤 Upload Project", use_container_width=True):
             st.switch_page("pages/02_Upload_Project.py")
     
+    # Add Code Editor option
+    st.markdown("""
+    <div class="feature-card">
+        <h4>💻 Code Editor</h4>
+        <p>Edit your local repository files directly in the browser and commit changes back to GitHub.</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    if st.button("💻 Edit Code", use_container_width=True):
+        st.switch_page("pages/03_Code_Editor.py")
+    
     # Recent activity or tips
     st.markdown("---")
     st.subheader("💡 Tips")
