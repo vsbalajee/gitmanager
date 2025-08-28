@@ -139,8 +139,14 @@ def main():
                     st.markdown(f"[🌐 View on GitHub]({repo['html_url']})")
                     
                     # Download button
-                    if st.button(f"📥 Download", key=f"download_{repo['name']}"):
+                    if st.button(f"📥 Download", key=f"download_{repo['name']}", help="Click to download this repository"):
+                        st.session_state[f"downloading_{repo['name']}"] = True
+                    
+                    # Handle download if button was clicked
+                    if st.session_state.get(f"downloading_{repo['name']}", False):
                         download_repository(repo, git_ops)
+                        # Reset the download state
+                        st.session_state[f"downloading_{repo['name']}"] = False
                 
                 st.divider()
     
@@ -151,28 +157,59 @@ def main():
 def download_repository(repo, git_ops):
     """Handle repository download"""
     try:
-        # Get download path from secrets or use default
-        default_path = st.secrets.get("github", {}).get("default_clone_path", "./downloads")
-        
-        # Let user choose download location
+        st.write("---")
         st.subheader(f"📥 Downloading: {repo['name']}")
         
-        download_path = st.text_input(
-            "Download Location:",
-            value=default_path,
-            key=f"path_{repo['name']}"
-        )
+        # Get download path from secrets or use default
+        try:
+            default_path = st.secrets.get("github", {}).get("default_clone_path", "./downloads")
+        except Exception as e:
+            logger.warning(f"Could not read default path from secrets: {str(e)}")
+            default_path = "./downloads"
         
-        if st.button(f"Confirm Download", key=f"confirm_{repo['name']}"):
+        # Create form for download configuration
+        with st.form(key=f"download_form_{repo['name']}"):
+            download_path = st.text_input(
+                "Download Location:",
+                value=default_path,
+                help="Enter the full path where you want to download the repository"
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                confirm_download = st.form_submit_button("✅ Start Download", use_container_width=True)
+            with col2:
+                cancel_download = st.form_submit_button("❌ Cancel", use_container_width=True)
+        
+        if cancel_download:
+            st.info("Download cancelled.")
+            return
+            
+        if confirm_download:
+            if not download_path.strip():
+                st.error("Please enter a valid download path.")
+                return
+                
             # Create progress bar
             progress_bar = st.progress(0)
             status_text = st.empty()
             
             def update_progress(percentage, message):
-                progress_bar.progress(percentage)
+                progress_bar.progress(min(percentage, 100))
                 status_text.text(message)
             
             try:
+                # Validate download path
+                download_path = download_path.strip()
+                if not os.path.exists(os.path.dirname(download_path)) and download_path != "./downloads":
+                    try:
+                        os.makedirs(os.path.dirname(download_path), exist_ok=True)
+                    except Exception as e:
+                        st.error(f"Cannot create download directory: {str(e)}")
+                        return
+                
+                update_progress(10, "Preparing download...")
+                
                 # Clone repository
                 local_path = git_ops.clone_repository(
                     repo['clone_url'],
@@ -184,13 +221,25 @@ def download_repository(repo, git_ops):
                 st.success(f"✅ Repository downloaded successfully to: {local_path}")
                 
                 # Show directory info
-                dir_size = git_ops.get_directory_size(local_path)
-                st.info(f"📁 Directory size: {dir_size / (1024*1024):.2f} MB")
+                try:
+                    dir_size = git_ops.get_directory_size(local_path)
+                    st.info(f"📁 Directory size: {dir_size / (1024*1024):.2f} MB")
+                except Exception as e:
+                    logger.warning(f"Could not calculate directory size: {str(e)}")
+                    st.info("📁 Repository downloaded successfully")
                 
                 logger.info(f"Repository {repo['name']} downloaded to {local_path}")
                 
             except Exception as e:
-                st.error(f"❌ Download failed: {str(e)}")
+                error_msg = str(e)
+                if "already exists" in error_msg.lower():
+                    st.error(f"❌ Download failed: Directory already exists. Please choose a different location or delete the existing directory.")
+                elif "permission" in error_msg.lower():
+                    st.error(f"❌ Download failed: Permission denied. Please check folder permissions or choose a different location.")
+                elif "network" in error_msg.lower() or "timeout" in error_msg.lower():
+                    st.error(f"❌ Download failed: Network error. Please check your internet connection and try again.")
+                else:
+                    st.error(f"❌ Download failed: {error_msg}")
                 logger.error(f"Download failed for {repo['name']}: {str(e)}")
             finally:
                 progress_bar.empty()
