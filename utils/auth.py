@@ -2,6 +2,7 @@ import streamlit as st
 from github import Github, GithubException
 from utils.logger import logger
 import re
+import time
 
 class GitHubAuth:
     def __init__(self):
@@ -28,28 +29,58 @@ class GitHubAuth:
                 logger.warning("Empty token provided")
                 return False, "Token cannot be empty"
             
+            # Clean the token (remove any whitespace)
+            token = token.strip()
+            
             if not self.validate_pat_format(token):
                 logger.warning("Invalid PAT format provided")
                 return False, "Invalid GitHub PAT format"
             
-            # Test authentication
-            github_client = Github(token)
+            # Test authentication with timeout and retry
+            github_client = Github(token, timeout=30, retry=3)
             user = github_client.get_user()
             
-            # Test basic permissions
-            user.login  # This will raise an exception if token is invalid
+            # Test basic permissions with proper error handling
+            try:
+                login = user.login
+                name = user.name
+                logger.info(f"Authentication successful for user: {login}")
+            except Exception as e:
+                logger.error(f"Failed to get user details: {str(e)}")
+                return False, "Token is valid but cannot access user information"
             
             self.github_client = github_client
-            logger.info(f"Successfully authenticated user: {user.login}")
+            logger.info(f"Successfully authenticated user: {login}")
             
-            return True, f"Successfully authenticated as {user.login}"
+            return True, f"Successfully authenticated as {login}"
             
         except GithubException as e:
-            error_msg = f"GitHub authentication failed: {e.data.get('message', str(e))}"
+            if hasattr(e, 'data') and e.data:
+                error_msg = f"GitHub authentication failed: {e.data.get('message', str(e))}"
+            else:
+                error_msg = f"GitHub authentication failed: {str(e)}"
             logger.error(error_msg)
             return False, error_msg
         except Exception as e:
-            error_msg = f"Unexpected authentication error: {str(e)}"
+            if "rate limit" in str(e).lower():
+                error_msg = "GitHub API rate limit exceeded. Please try again later."
+            elif "network" in str(e).lower() or "timeout" in str(e).lower():
+                error_msg = "Network error. Please check your internet connection."
+            else:
+                error_msg = f"Authentication error: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+    
+    def test_connection(self):
+        """Test GitHub connection without authentication"""
+        try:
+            # Test basic GitHub connectivity
+            github_client = Github(timeout=10)
+            # Try to access a public endpoint
+            github_client.get_rate_limit()
+            return True, "GitHub connection successful"
+        except Exception as e:
+            error_msg = f"Cannot connect to GitHub: {str(e)}"
             logger.error(error_msg)
             return False, error_msg
     

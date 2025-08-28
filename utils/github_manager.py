@@ -3,9 +3,12 @@ from github import Github, GithubException
 from utils.logger import logger
 import os
 from datetime import datetime
+import time
 
 class GitHubManager:
     def __init__(self, github_client):
+        if not github_client:
+            raise ValueError("GitHub client cannot be None")
         self.github_client = github_client
         self.user = None
         self._initialize_user()
@@ -21,14 +24,27 @@ class GitHubManager:
     def get_repositories(self, repo_type="all"):
         """Get user repositories"""
         try:
+            if not self.github_client:
+                raise Exception("GitHub client not initialized")
+                
             logger.info(f"Fetching repositories of type: {repo_type}")
             
-            if repo_type == "public":
-                repos = self.user.get_repos(type="public")
-            elif repo_type == "private":
-                repos = self.user.get_repos(type="private")
-            else:
-                repos = self.user.get_repos(type="all")
+            # Add retry logic for API calls
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if repo_type == "public":
+                        repos = self.user.get_repos(type="public")
+                    elif repo_type == "private":
+                        repos = self.user.get_repos(type="private")
+                    else:
+                        repos = self.user.get_repos(type="all")
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise e
+                    logger.warning(f"Attempt {attempt + 1} failed, retrying...")
+                    time.sleep(2)
             
             repo_list = []
             for repo in repos:
@@ -58,11 +74,21 @@ class GitHubManager:
             return repo_list
             
         except GithubException as e:
-            error_msg = f"GitHub API error: {e.data.get('message', str(e))}"
+            if hasattr(e, 'data') and e.data:
+                error_msg = f"GitHub API error: {e.data.get('message', str(e))}"
+            else:
+                error_msg = f"GitHub API error: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg)
         except Exception as e:
-            error_msg = f"Error fetching repositories: {str(e)}"
+            if "rate limit" in str(e).lower():
+                error_msg = "GitHub API rate limit exceeded. Please try again later."
+            elif "403" in str(e):
+                error_msg = "Access forbidden. Please check your token permissions."
+            elif "404" in str(e):
+                error_msg = "Resource not found. Please check your token and permissions."
+            else:
+                error_msg = f"Error fetching repositories: {str(e)}"
             logger.error(error_msg)
             raise Exception(error_msg)
     

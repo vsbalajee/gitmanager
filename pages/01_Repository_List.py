@@ -49,13 +49,26 @@ def main():
         # Load repositories
         with st.spinner("Loading repositories..."):
             try:
+                # Check if GitHub client is still valid
+                if not st.session_state.github_auth.get_github_client():
+                    st.error("GitHub authentication expired. Please re-authenticate.")
+                    st.stop()
+                
                 repositories = github_manager.get_repositories(repo_type)
                 
                 if search_query:
                     repositories = github_manager.search_repositories(search_query, repositories)
                 
             except Exception as e:
-                st.error(f"Error loading repositories: {str(e)}")
+                error_msg = str(e)
+                if "rate limit" in error_msg.lower():
+                    st.error("⚠️ GitHub API rate limit exceeded. Please wait a few minutes and try again.")
+                elif "403" in error_msg or "forbidden" in error_msg.lower():
+                    st.error("🔒 Access forbidden. Please check your GitHub token permissions.")
+                elif "404" in error_msg:
+                    st.error("🔍 Resource not found. Please verify your GitHub token has the correct permissions.")
+                else:
+                    st.error(f"❌ Error loading repositories: {error_msg}")
                 logger.error(f"Error loading repositories: {str(e)}")
                 return
         

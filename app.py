@@ -181,13 +181,24 @@ def authenticate_user(developer_name, github_token):
             st.error("Please enter your GitHub Personal Access Token.")
             return
         
+        # Test basic connectivity first
+        with st.spinner("Testing GitHub connectivity..."):
+            conn_success, conn_msg = st.session_state.github_auth.test_connection()
+            if not conn_success:
+                st.error(f"❌ {conn_msg}")
+                return
+        
         # Show authentication progress
         with st.spinner("Authenticating with GitHub..."):
             success, message = st.session_state.github_auth.authenticate(github_token)
         
         if success:
             # Get user info
-            user_info = st.session_state.github_auth.get_user_info()
+            try:
+                user_info = st.session_state.github_auth.get_user_info()
+            except Exception as e:
+                st.error(f"Authentication succeeded but failed to get user info: {str(e)}")
+                return
             
             if user_info:
                 # Update session state
