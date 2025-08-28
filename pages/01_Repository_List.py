@@ -124,6 +124,7 @@ def main():
             for i, repo in enumerate(repositories):
                 if st.button(f"📥", key=f"download_btn_{repo['name']}", help=f"Download {repo['name']}"):
                     st.session_state[f"show_download_{repo['name']}"] = True
+                    st.rerun()
         
         # Handle download forms
         for repo in repositories:
